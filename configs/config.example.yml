@@ -1,0 +1,5 @@
+# Example configuration for port
+# Copy to config.yml and adjust as needed
+
+app:
+  log_level: info

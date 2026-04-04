@@ -1,0 +1,39 @@
+project_name: port-server
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    main: ./cmd/port-server
+
+archives:
+  - formats: ['tar.gz']
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  groups:
+    - title: 'Features'
+      regexp: '^.*?feat(\([^\)]+\))?!?:'
+      order: 0
+    - title: 'Bug fixes'
+      regexp: '^.*?fix(\([^\)]+\))?!?:'
+      order: 1
+    - title: 'Other'
+      order: 999
