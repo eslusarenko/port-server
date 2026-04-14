@@ -1,5 +1,10 @@
-# Example configuration for port
-# Copy to config.yml and adjust as needed
+# port-server configuration
+# All settings are configured via environment variables.
 
-app:
-  log_level: info
+# PORT_ADDR: listen address (default ":8080")
+# PORT_BASE_DOMAIN: base domain for tunnel subdomains (default "tunnel.localhost")
+# PORT_TUNNEL_TTL: max tunnel lifetime (default "24h")
+# PORT_LOG_LEVEL: log level - debug, info, warn, error (default "info")
+# PORT_MAX_BODY_SIZE: max request/response body in bytes (default 10485760 = 10MB)
+# PORT_PING_INTERVAL: expected client ping interval (default "30s")
+# PORT_PING_TIMEOUT: time before tunnel is torn down without pings (default "90s")

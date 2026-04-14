@@ -1,4 +1,4 @@
-.PHONY: build test lint clean release-dry
+.PHONY: build test lint clean release-dry run
 
 build:
 	go build -o bin/port-server ./cmd/port-server
@@ -14,3 +14,6 @@ clean:
 
 release-dry:
 	goreleaser release --snapshot --clean
+
+run:
+	go run ./cmd/port-server
