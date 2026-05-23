@@ -16,14 +16,16 @@ type Handler struct {
 	manager *tunnel.Manager
 	logger  *slog.Logger
 	maxBody int64
+	trustProxyHeaders bool
 }
 
 // NewHandler creates a new WebSocket tunnel handler.
-func NewHandler(manager *tunnel.Manager, logger *slog.Logger, maxBody int64) *Handler {
+func NewHandler(manager *tunnel.Manager, logger *slog.Logger, maxBody int64, trustProxyHeaders bool) *Handler {
 	return &Handler{
 		manager: manager,
 		logger:  logger,
 		maxBody: maxBody,
+		trustProxyHeaders: trustProxyHeaders,
 	}
 }
 
@@ -63,7 +65,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("tunnel connected", "subdomain", tun.ID, "remote", r.RemoteAddr)
+	h.logger.Info("tunnel connected", "subdomain", tun.ID, "remote", clientIP(r, h.trustProxyHeaders))
 
 	// Read loop: process messages from the client.
 	h.readLoop(r.Context(), tun)

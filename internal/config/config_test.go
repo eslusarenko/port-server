@@ -30,6 +30,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Ping.Timeout != 90*time.Second {
 		t.Errorf("Ping.Timeout = %v, want 90s", cfg.Ping.Timeout)
 	}
+	if cfg.TrustProxyHeaders != false {
+		t.Errorf("TrustProxyHeaders = %v, want false", cfg.TrustProxyHeaders)
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -40,6 +43,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("PORT_MAX_BODY_SIZE", "5242880")
 	t.Setenv("PORT_PING_INTERVAL", "10s")
 	t.Setenv("PORT_PING_TIMEOUT", "30s")
+	t.Setenv("PORT_TRUST_PROXY_HEADERS", "true")
 
 	cfg := Load()
 
@@ -63,6 +67,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.Ping.Timeout != 30*time.Second {
 		t.Errorf("Ping.Timeout = %v, want 30s", cfg.Ping.Timeout)
+	}
+	if cfg.TrustProxyHeaders != true {
+		t.Errorf("TrustProxyHeaders = %v, want true", cfg.TrustProxyHeaders)
 	}
 }
 
@@ -159,5 +166,75 @@ func TestLoadFromArgs_VersionFlag(t *testing.T) {
 	}
 	if cfg != nil {
 		t.Error("cfg should be nil when version is requested")
+	}
+}
+
+func TestLoadFromArgs_TrustProxyHeadersFlag(t *testing.T) {
+	cfg, _, err := LoadFromArgs([]string{"--trust-proxy-headers"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.TrustProxyHeaders {
+		t.Error("TrustProxyHeaders should be true when --trust-proxy-headers flag is passed")
+	}
+}
+
+func TestLoadDefaults_LogFields(t *testing.T) {
+	cfg := Load()
+	if cfg.LogType != "plain" {
+		t.Errorf("LogType = %q, want plain", cfg.LogType)
+	}
+	if cfg.LogFile != "" {
+		t.Errorf("LogFile = %q, want empty", cfg.LogFile)
+	}
+}
+
+func TestLoadFromEnv_LogFields(t *testing.T) {
+	t.Setenv("PORT_LOG_TYPE", "json")
+	t.Setenv("PORT_LOG_FILENAME", "/tmp/test.log")
+	cfg := Load()
+	if cfg.LogType != "json" {
+		t.Errorf("LogType = %q, want json", cfg.LogType)
+	}
+	if cfg.LogFile != "/tmp/test.log" {
+		t.Errorf("LogFile = %q, want /tmp/test.log", cfg.LogFile)
+	}
+}
+
+func TestLoadFromArgs_LogTypeFlagOverridesEnv(t *testing.T) {
+	t.Setenv("PORT_LOG_TYPE", "json")
+	cfg, _, err := LoadFromArgs([]string{"--log-type=plain"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogType != "plain" {
+		t.Errorf("LogType = %q, want plain (flag should win over env)", cfg.LogType)
+	}
+}
+
+func TestLoadFromArgs_JsonLogsShortcut(t *testing.T) {
+	cfg, _, err := LoadFromArgs([]string{"--json-logs"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogType != "json" {
+		t.Errorf("LogType = %q, want json", cfg.LogType)
+	}
+}
+
+func TestLoadFromArgs_ExplicitLogTypeBeatJsonLogs(t *testing.T) {
+	cfg, _, err := LoadFromArgs([]string{"--json-logs", "--log-type=plain"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogType != "plain" {
+		t.Errorf("LogType = %q, want plain (explicit --log-type should win over --json-logs)", cfg.LogType)
+	}
+}
+
+func TestLoadFromArgs_InvalidLogTypeErrors(t *testing.T) {
+	_, _, err := LoadFromArgs([]string{"--log-type=garbage"}, flag.ContinueOnError)
+	if err == nil {
+		t.Error("expected error for invalid --log-type, got nil")
 	}
 }

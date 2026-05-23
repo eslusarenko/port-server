@@ -46,7 +46,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 func (a *App) Run(ctx context.Context) error {
 	a.mgr = tunnel.NewManager(a.cfg.BaseDomain, a.cfg.TunnelTTL, a.logger)
 
-	wsHandler := transport.NewHandler(a.mgr, a.logger, a.cfg.MaxBodySize)
+	wsHandler := transport.NewHandler(a.mgr, a.logger, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
 	proxyHandler := proxy.NewProxy(&managerAdapter{a.mgr}, a.cfg.BaseDomain, a.logger, a.cfg.MaxBodySize)
 
 	mux := http.NewServeMux()

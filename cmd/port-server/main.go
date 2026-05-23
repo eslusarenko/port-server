@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,8 +18,8 @@ import (
 func main() {
 	cfg, versionRequested, err := config.LoadFromArgs(os.Args[1:], flag.ExitOnError)
 	if err != nil {
-		// flag.ExitOnError already calls os.Exit; this path is unreachable
-		// in practice but satisfies the compiler.
+		// flag.ExitOnError handles parse errors, but post-parse validation errors reach here.
+		fmt.Fprintf(os.Stderr, "port-server: %v\n", err)
 		os.Exit(2)
 	}
 	if versionRequested {
@@ -37,7 +38,31 @@ func main() {
 	default:
 		level = slog.LevelInfo
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	var logFile *os.File
+	if cfg.LogFile != "" {
+		logFile, err = os.OpenFile(cfg.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open log file %q: %v\n", cfg.LogFile, err)
+			os.Exit(1)
+		}
+		defer logFile.Close()
+	}
+
+	out := os.Stderr
+	if logFile != nil {
+		out = logFile
+	}
+
+	var handler slog.Handler
+	switch cfg.LogType {
+	case "json":
+		handler = slog.NewJSONHandler(out, &slog.HandlerOptions{Level: level})
+	case "silent":
+		handler = slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: level})
+	default:
+		handler = slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})
+	}
+	logger := slog.New(handler)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
