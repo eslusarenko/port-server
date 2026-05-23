@@ -47,7 +47,6 @@ func (m *Manager) Register(conn *websocket.Conn, desired string) (*Tunnel, error
 		}
 		t := NewTunnel(desired, conn)
 		m.tunnels[desired] = t
-		m.logger.Info("tunnel registered", "subdomain", desired)
 		return t, nil
 	}
 
@@ -61,7 +60,6 @@ func (m *Manager) Register(conn *websocket.Conn, desired string) (*Tunnel, error
 		}
 		t := NewTunnel(sub, conn)
 		m.tunnels[sub] = t
-		m.logger.Info("tunnel registered", "subdomain", sub)
 		return t, nil
 	}
 	return nil, fmt.Errorf("failed to generate unique subdomain after %d retries", maxSubdomainRetries)
@@ -76,6 +74,7 @@ func (m *Manager) Lookup(subdomain string) (*Tunnel, bool) {
 }
 
 // Remove removes and closes the tunnel for the given subdomain.
+// The caller is responsible for logging tunnel_close.
 func (m *Manager) Remove(subdomain string) {
 	m.mu.Lock()
 	t, ok := m.tunnels[subdomain]
@@ -86,7 +85,6 @@ func (m *Manager) Remove(subdomain string) {
 
 	if ok {
 		t.Close()
-		m.logger.Info("tunnel removed", "subdomain", subdomain)
 	}
 }
 
@@ -109,19 +107,24 @@ func (m *Manager) StartCleanup(ctx context.Context) {
 func (m *Manager) evictExpired() {
 	now := time.Now()
 	m.mu.Lock()
-	var expired []string
+	var expired []*Tunnel
 	for sub, t := range m.tunnels {
 		if now.Sub(t.CreatedAt) > m.ttl {
-			expired = append(expired, sub)
+			expired = append(expired, t)
+			delete(m.tunnels, sub)
 		}
-	}
-	for _, sub := range expired {
-		delete(m.tunnels, sub)
 	}
 	m.mu.Unlock()
 
-	for _, sub := range expired {
-		m.logger.Info("tunnel expired", "subdomain", sub)
+	for _, t := range expired {
+		t.Close()
+		m.logger.Info("tunnel_close",
+			"subdomain", t.ID,
+			"duration_seconds", time.Since(t.CreatedAt).Seconds(),
+			"bytes_in", t.BytesIn(),
+			"bytes_out", t.BytesOut(),
+			"reason", "expired",
+		)
 	}
 }
 

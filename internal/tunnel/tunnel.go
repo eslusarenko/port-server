@@ -19,6 +19,8 @@ type Tunnel struct {
 
 	writeMu   sync.Mutex
 	nextReqID atomic.Uint32
+	bytesIn   atomic.Int64
+	bytesOut  atomic.Int64
 	mu        sync.Mutex
 	pending   map[uint32]chan responseResult
 	closed    bool
@@ -79,6 +81,10 @@ func (t *Tunnel) ForwardRequest(ctx context.Context, meta protocol.HttpRequestMe
 		t.mu.Unlock()
 		return protocol.HttpResponseMeta{}, nil, ctx.Err()
 	case res := <-ch:
+		if res.Err == nil {
+			t.bytesIn.Add(int64(len(body)))
+			t.bytesOut.Add(int64(len(res.Body)))
+		}
 		return res.Meta, res.Body, res.Err
 	}
 }
@@ -110,6 +116,16 @@ func (t *Tunnel) HandleRequestError(requestID uint32, errMsg string) {
 	if ok {
 		ch <- responseResult{Err: fmt.Errorf("client: %s", errMsg)}
 	}
+}
+
+// BytesIn returns the total bytes received into the tunnel (request bodies).
+func (t *Tunnel) BytesIn() int64 {
+	return t.bytesIn.Load()
+}
+
+// BytesOut returns the total bytes sent out of the tunnel (response bodies).
+func (t *Tunnel) BytesOut() int64 {
+	return t.bytesOut.Load()
 }
 
 // Close tears down the tunnel, failing all pending requests.

@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/eslusarenko/port-server/internal/httputil"
 	"github.com/eslusarenko/port-server/internal/protocol"
 )
 
@@ -22,10 +24,11 @@ type TunnelLookup interface {
 
 // Proxy is an HTTP handler that routes requests to tunnels based on the Host header.
 type Proxy struct {
-	lookup     TunnelLookup
-	baseDomain string
-	logger     *slog.Logger
-	maxBody    int64
+	lookup            TunnelLookup
+	baseDomain        string
+	logger            *slog.Logger
+	maxBody           int64
+	trustProxyHeaders bool
 }
 
 // NewProxy creates a new reverse proxy handler.
@@ -35,6 +38,17 @@ func NewProxy(lookup TunnelLookup, baseDomain string, logger *slog.Logger, maxBo
 		baseDomain: baseDomain,
 		logger:     logger,
 		maxBody:    maxBody,
+	}
+}
+
+// NewProxyWithOptions creates a new reverse proxy handler with additional options.
+func NewProxyWithOptions(lookup TunnelLookup, baseDomain string, logger *slog.Logger, maxBody int64, trustProxyHeaders bool) *Proxy {
+	return &Proxy{
+		lookup:            lookup,
+		baseDomain:        baseDomain,
+		logger:            logger,
+		maxBody:           maxBody,
+		trustProxyHeaders: trustProxyHeaders,
 	}
 }
 
@@ -80,12 +94,25 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ContentLength: r.ContentLength,
 	}
 
+	start := time.Now()
 	respMeta, respBody, err := tun.ForwardRequest(r.Context(), meta, body)
 	if err != nil {
-		p.logger.Error("forward request failed", "subdomain", subdomain, "error", err)
+		p.logger.Error("forward_request_failed", "subdomain", subdomain, "error", err)
 		http.Error(w, "bad gateway", http.StatusBadGateway)
 		return
 	}
+
+	durationMs := float64(time.Since(start).Microseconds()) / 1000.0
+	p.logger.Info("http_request",
+		"subdomain", subdomain,
+		"method", r.Method,
+		"path", r.URL.RequestURI(),
+		"status", respMeta.StatusCode,
+		"duration_ms", durationMs,
+		"bytes_in", int64(len(body)),
+		"bytes_out", int64(len(respBody)),
+		"client_ip", httputil.ClientIP(r, p.trustProxyHeaders),
+	)
 
 	// Write response headers.
 	for k, vs := range respMeta.Headers {

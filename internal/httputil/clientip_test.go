@@ -1,4 +1,4 @@
-package transport
+package httputil
 
 import (
 	"net/http"
@@ -7,19 +7,19 @@ import (
 
 func TestClientIP(t *testing.T) {
 	tests := []struct {
-		name               string
-		trustProxyHeaders  bool
-		remoteAddr         string
-		xff                string
-		xri                string
-		want               string
+		name              string
+		trustProxyHeaders bool
+		remoteAddr        string
+		xff               string
+		xri               string
+		want              string
 	}{
 		{
 			name:              "trust=false returns RemoteAddr",
 			trustProxyHeaders: false,
 			remoteAddr:        "10.1.77.50:12345",
 			xff:               "1.2.3.4",
-			want:              "10.1.77.50:12345",
+			want:              "10.1.77.50",
 		},
 		{
 			name:              "XFF single entry",
@@ -53,7 +53,7 @@ func TestClientIP(t *testing.T) {
 			name:              "no proxy headers returns RemoteAddr",
 			trustProxyHeaders: true,
 			remoteAddr:        "10.0.0.1:9999",
-			want:              "10.0.0.1:9999",
+			want:              "10.0.0.1",
 		},
 	}
 
@@ -67,9 +67,9 @@ func TestClientIP(t *testing.T) {
 			if tc.xri != "" {
 				r.Header.Set("X-Real-IP", tc.xri)
 			}
-			got := clientIP(r, tc.trustProxyHeaders)
+			got := ClientIP(r, tc.trustProxyHeaders)
 			if got != tc.want {
-				t.Errorf("clientIP() = %q, want %q", got, tc.want)
+				t.Errorf("ClientIP() = %q, want %q", got, tc.want)
 			}
 		})
 	}

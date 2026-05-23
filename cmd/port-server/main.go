@@ -53,14 +53,21 @@ func main() {
 		out = logFile
 	}
 
+	replaceMsg := func(_ []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.MessageKey {
+			a.Key = "event"
+		}
+		return a
+	}
+
 	var handler slog.Handler
 	switch cfg.LogType {
 	case "json":
-		handler = slog.NewJSONHandler(out, &slog.HandlerOptions{Level: level})
+		handler = slog.NewJSONHandler(out, &slog.HandlerOptions{Level: level, ReplaceAttr: replaceMsg})
 	case "silent":
 		handler = slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: level})
 	default:
-		handler = slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})
+		handler = slog.NewTextHandler(out, &slog.HandlerOptions{Level: level, ReplaceAttr: replaceMsg})
 	}
 	logger := slog.New(handler)
 
@@ -68,7 +75,7 @@ func main() {
 	defer cancel()
 
 	if err := app.New(cfg, logger).Run(ctx); err != nil {
-		logger.Error("server failed", "error", err)
+		logger.Error("server_failed", "error", err)
 		os.Exit(1)
 	}
 }

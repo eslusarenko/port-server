@@ -47,7 +47,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.mgr = tunnel.NewManager(a.cfg.BaseDomain, a.cfg.TunnelTTL, a.logger)
 
 	wsHandler := transport.NewHandler(a.mgr, a.logger, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
-	proxyHandler := proxy.NewProxy(&managerAdapter{a.mgr}, a.cfg.BaseDomain, a.logger, a.cfg.MaxBodySize)
+	proxyHandler := proxy.NewProxyWithOptions(&managerAdapter{a.mgr}, a.cfg.BaseDomain, a.logger, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /tunnel/connect", wsHandler)
@@ -71,12 +71,12 @@ func (a *App) Run(ctx context.Context) error {
 	// Graceful shutdown on context cancellation.
 	go func() {
 		<-ctx.Done()
-		a.logger.Info("shutting down server")
+		a.logger.Info("server_stopping")
 		a.mgr.CloseAll()
 		_ = a.server.Shutdown(context.Background())
 	}()
 
-	a.logger.Info("server starting", "addr", a.cfg.Addr, "domain", a.cfg.BaseDomain)
+	a.logger.Info("server_starting", "addr", a.cfg.Addr, "domain", a.cfg.BaseDomain)
 	err := a.server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

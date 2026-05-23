@@ -1,10 +1,23 @@
 # port-server configuration
-# All settings are configured via environment variables.
+# All settings are configured via environment variables or CLI flags.
 
 # PORT_ADDR: listen address (default ":8080")
+#   CLI flag: --addr
 # PORT_BASE_DOMAIN: base domain for tunnel subdomains (default "tunnel.localhost")
-# PORT_TUNNEL_TTL: max tunnel lifetime (default "24h")
-# PORT_LOG_LEVEL: log level - debug, info, warn, error (default "info")
-# PORT_MAX_BODY_SIZE: max request/response body in bytes (default 10485760 = 10MB)
-# PORT_PING_INTERVAL: expected client ping interval (default "30s")
-# PORT_PING_TIMEOUT: time before tunnel is torn down without pings (default "90s")
+#   CLI flag: --base-domain
+# PORT_TUNNEL_TTL: how long an idle tunnel lives (default "24h")
+#   CLI flag: --tunnel-ttl
+# PORT_LOG_LEVEL: log verbosity - debug, info, warn, error (default "info")
+#   CLI flag: --log-level
+# PORT_LOG_TYPE: log format - plain, json, silent (default "plain")
+#   CLI flag: --log-type
+# PORT_LOG_FILENAME: write logs to this file instead of stderr (default "")
+#   CLI flag: --log-file
+# PORT_MAX_BODY_SIZE: max request body size in bytes (default 10485760 = 10MB)
+#   CLI flag: --max-body-size
+# PORT_PING_INTERVAL: WebSocket ping interval (default "30s")
+#   CLI flag: --ping-interval
+# PORT_PING_TIMEOUT: WebSocket ping timeout (default "1m30s")
+#   CLI flag: --ping-timeout
+# PORT_TRUST_PROXY_HEADERS: trust X-Forwarded-For / X-Real-IP from reverse proxy (default false)
+#   CLI flag: --trust-proxy-headers
