@@ -11,6 +11,9 @@ builds:
       - amd64
       - arm64
     main: ./cmd/port-server
+    binary: port-server
+    ldflags:
+      - -s -w -X github.com/eslusarenko/port-server/internal/version.Version={{.Version}}
 
 archives:
   - formats: ['tar.gz']

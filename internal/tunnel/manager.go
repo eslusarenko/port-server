@@ -32,10 +32,24 @@ func NewManager(baseDomain string, ttl time.Duration, logger *slog.Logger) *Mana
 }
 
 // Register creates a new tunnel for the given WebSocket connection.
-// It generates a unique subdomain and returns the Tunnel.
-func (m *Manager) Register(conn *websocket.Conn) (*Tunnel, error) {
+// If desired is non-empty, it is validated and used as the subdomain (error if taken).
+// Otherwise a random subdomain is generated.
+func (m *Manager) Register(conn *websocket.Conn, desired string) (*Tunnel, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if desired != "" {
+		if err := ValidateSubdomain(desired); err != nil {
+			return nil, err
+		}
+		if _, taken := m.tunnels[desired]; taken {
+			return nil, fmt.Errorf("subdomain %q is already in use", desired)
+		}
+		t := NewTunnel(desired, conn)
+		m.tunnels[desired] = t
+		m.logger.Info("tunnel registered", "subdomain", desired)
+		return t, nil
+	}
 
 	for i := 0; i < maxSubdomainRetries; i++ {
 		sub, err := GenerateSubdomain()

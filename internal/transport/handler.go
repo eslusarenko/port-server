@@ -38,7 +38,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(h.maxBody + protocol.HeaderSize + 4 + 4096) // body + header + meta overhead
 
-	tun, err := h.manager.Register(conn)
+	tun, err := h.manager.Register(conn, r.URL.Query().Get("subdomain"))
 	if err != nil {
 		h.logger.Error("tunnel registration failed", "error", err)
 		errPayload, _ := json.Marshal(protocol.TunnelError{Error: err.Error()})

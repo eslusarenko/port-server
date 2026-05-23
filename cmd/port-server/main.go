@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,10 +11,20 @@ import (
 
 	"github.com/eslusarenko/port-server/internal/app"
 	"github.com/eslusarenko/port-server/internal/config"
+	"github.com/eslusarenko/port-server/internal/version"
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, versionRequested, err := config.LoadFromArgs(os.Args[1:], flag.ExitOnError)
+	if err != nil {
+		// flag.ExitOnError already calls os.Exit; this path is unreachable
+		// in practice but satisfies the compiler.
+		os.Exit(2)
+	}
+	if versionRequested {
+		fmt.Println(version.Version)
+		os.Exit(0)
+	}
 
 	var level slog.Level
 	switch cfg.LogLevel {
