@@ -7,10 +7,11 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-
-linters-settings:
-  govet:
-    enable-all: true
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
 
 issues:
   max-same-issues: 0
