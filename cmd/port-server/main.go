@@ -45,7 +45,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "failed to open log file %q: %v\n", cfg.LogFile, err)
 			os.Exit(1)
 		}
-		defer logFile.Close()
+		defer func() {
+			if cerr := logFile.Close(); cerr != nil {
+				fmt.Fprintf(os.Stderr, "port-server: failed to close log file: %v\n", cerr)
+			}
+		}()
 	}
 
 	out := os.Stderr

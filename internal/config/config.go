@@ -52,24 +52,24 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 
 	fs := flag.NewFlagSet("port-server", errorHandling)
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "port-server — public tunnel server\n\nFlags:\n")
+		_, _ = fmt.Fprintf(fs.Output(), "port-server — public tunnel server\n\nFlags:\n")
 		fs.VisitAll(func(f *flag.Flag) {
 			typeName, usage := flag.UnquoteUsage(f)
 			if typeName != "" {
-				fmt.Fprintf(fs.Output(), "  --%s %s\n", f.Name, typeName)
+				_, _ = fmt.Fprintf(fs.Output(), "  --%s %s\n", f.Name, typeName)
 			} else {
-				fmt.Fprintf(fs.Output(), "  --%s\n", f.Name)
+				_, _ = fmt.Fprintf(fs.Output(), "  --%s\n", f.Name)
 			}
 
-			fmt.Fprintf(fs.Output(), "\t%s", usage)
+			_, _ = fmt.Fprintf(fs.Output(), "\t%s", usage)
 			if f.DefValue != "" {
 				defVal := f.DefValue
 				if typeName == "string" {
 					defVal = strconv.Quote(defVal)
 				}
-				fmt.Fprintf(fs.Output(), " (default %s)", defVal)
+				_, _ = fmt.Fprintf(fs.Output(), " (default %s)", defVal)
 			}
-			fmt.Fprintln(fs.Output())
+			_, _ = fmt.Fprintln(fs.Output())
 		})
 	}
 
