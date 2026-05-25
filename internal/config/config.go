@@ -14,6 +14,8 @@ import (
 type Config struct {
 	Addr              string
 	BaseDomain        string
+	DBDSN             string
+	AllowUnauthed     bool
 	TunnelTTL         time.Duration
 	LogLevel          string
 	LogType           string
@@ -82,6 +84,15 @@ func applyEnv(cfg *Config) {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.Ping.Timeout = d
 		}
+	}
+	if v := os.Getenv("PORT_DB_DSN"); v != "" {
+		cfg.DBDSN = v
+	}
+	switch os.Getenv("PORT_ALLOW_UNAUTHED") {
+	case "1", "true", "yes":
+		cfg.AllowUnauthed = true
+	case "0", "false", "no":
+		cfg.AllowUnauthed = false
 	}
 	switch os.Getenv("PORT_TRUST_PROXY_HEADERS") {
 	case "1", "true", "yes":
@@ -165,6 +176,17 @@ func parseConfigFile(path string, cfg *Config) (retErr error) {
 				return fmt.Errorf("config: %s: line %d: invalid value for %s: %w", path, lineNum, key, err)
 			}
 			cfg.Ping.Timeout = d
+		case "PORT_DB_DSN":
+			cfg.DBDSN = val
+		case "PORT_ALLOW_UNAUTHED":
+			switch val {
+			case "1", "true", "yes":
+				cfg.AllowUnauthed = true
+			case "0", "false", "no":
+				cfg.AllowUnauthed = false
+			default:
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %q", path, lineNum, key, val)
+			}
 		case "PORT_TRUST_PROXY_HEADERS":
 			switch val {
 			case "1", "true", "yes":
@@ -250,6 +272,8 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 	fs.Int64Var(&cfg.MaxBodySize, "max-body-size", cfg.MaxBodySize, "max request body size in bytes (env PORT_MAX_BODY_SIZE)")
 	fs.DurationVar(&cfg.Ping.Interval, "ping-interval", cfg.Ping.Interval, "WebSocket ping interval (env PORT_PING_INTERVAL)")
 	fs.DurationVar(&cfg.Ping.Timeout, "ping-timeout", cfg.Ping.Timeout, "WebSocket ping timeout (env PORT_PING_TIMEOUT)")
+	fs.StringVar(&cfg.DBDSN, "db-dsn", cfg.DBDSN, "MySQL connection string (env PORT_DB_DSN)")
+	fs.BoolVar(&cfg.AllowUnauthed, "allow-unauthed", cfg.AllowUnauthed, "allow unauthenticated tunnels when no DB is configured (env PORT_ALLOW_UNAUTHED)")
 	fs.BoolVar(&cfg.TrustProxyHeaders, "trust-proxy-headers", cfg.TrustProxyHeaders, "trust X-Forwarded-For / X-Real-IP headers from reverse proxy (env PORT_TRUST_PROXY_HEADERS)")
 	fs.StringVar(&cfg.LogType, "log-type", cfg.LogType, "log format: plain|json|silent (env PORT_LOG_TYPE)")
 	fs.BoolVar(&jsonLogs, "json-logs", false, "shortcut for --log-type=json (overridden by explicit --log-type)")

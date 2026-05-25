@@ -47,7 +47,7 @@ func TestManagerRegisterLookupRemove(t *testing.T) {
 	conn, cleanup := testWebSocketConn(t)
 	defer cleanup()
 
-	tun, err := m.Register(conn, "")
+	tun, err := m.Register(conn, "", 0, false)
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestManagerConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			conn, cleanup := testWebSocketConn(t)
 			defer cleanup()
-			tun, err := m.Register(conn, "")
+			tun, err := m.Register(conn, "", 0, false)
 			if err != nil {
 				t.Errorf("Register: %v", err)
 				return

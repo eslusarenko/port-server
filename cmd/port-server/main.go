@@ -8,14 +8,45 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/eslusarenko/port-server/internal/admin"
 	"github.com/eslusarenko/port-server/internal/app"
 	"github.com/eslusarenko/port-server/internal/config"
 	"github.com/eslusarenko/port-server/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "admin" {
+		// Admin subcommand: load DB DSN from env or --db-dsn flag in remaining args.
+		dsn := os.Getenv("PORT_DB_DSN")
+		remainingArgs := os.Args[2:]
+		for i, a := range remainingArgs {
+			if a == "--db-dsn" && i+1 < len(remainingArgs) {
+				dsn = remainingArgs[i+1]
+				break
+			}
+			if strings.HasPrefix(a, "--db-dsn=") {
+				dsn = strings.TrimPrefix(a, "--db-dsn=")
+				break
+			}
+		}
+		if len(remainingArgs) > 0 && (remainingArgs[0] == "--help" || remainingArgs[0] == "-h") {
+			admin.PrintHelp()
+			os.Exit(0)
+		}
+		if dsn == "" {
+			_, _ = fmt.Fprintln(os.Stderr, "port-server admin: PORT_DB_DSN is required")
+			os.Exit(1)
+		}
+		if err := admin.Run(dsn, remainingArgs); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "port-server admin: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	cfg, versionRequested, err := config.LoadFromArgs(os.Args[1:], flag.ExitOnError)
 	if err != nil {
 		// flag.ExitOnError handles parse errors, but post-parse validation errors reach here.

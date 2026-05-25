@@ -2,12 +2,15 @@ package transport
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
+	dbpkg "github.com/eslusarenko/port-server/internal/db"
 	"github.com/eslusarenko/port-server/internal/httputil"
 	"github.com/eslusarenko/port-server/internal/protocol"
 	"github.com/eslusarenko/port-server/internal/tunnel"
@@ -17,15 +20,19 @@ import (
 type Handler struct {
 	manager           *tunnel.Manager
 	logger            *slog.Logger
+	db                *sql.DB
+	allowUnauthed     bool
 	maxBody           int64
 	trustProxyHeaders bool
 }
 
 // NewHandler creates a new WebSocket tunnel handler.
-func NewHandler(manager *tunnel.Manager, logger *slog.Logger, maxBody int64, trustProxyHeaders bool) *Handler {
+func NewHandler(manager *tunnel.Manager, logger *slog.Logger, database *sql.DB, allowUnauthed bool, maxBody int64, trustProxyHeaders bool) *Handler {
 	return &Handler{
 		manager:           manager,
 		logger:            logger,
+		db:                database,
+		allowUnauthed:     allowUnauthed,
 		maxBody:           maxBody,
 		trustProxyHeaders: trustProxyHeaders,
 	}
@@ -34,6 +41,35 @@ func NewHandler(manager *tunnel.Manager, logger *slog.Logger, maxBody int64, tru
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip := httputil.ClientIP(r, h.trustProxyHeaders)
 	ua := r.Header.Get("User-Agent")
+
+	rawKey := ""
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		rawKey = strings.TrimPrefix(auth, "Bearer ")
+	}
+
+	var (
+		userID int64
+		authed bool
+		keyID  int64
+	)
+
+	if rawKey != "" {
+		if h.db == nil {
+			http.Error(w, "authentication not configured", http.StatusUnauthorized)
+			return
+		}
+		res, err := dbpkg.LookupAPIKey(r.Context(), h.db, rawKey)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID = res.UserID
+		keyID = res.KeyID
+		authed = true
+	} else if !h.allowUnauthed {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Allow all origins since clients connect from various environments.
@@ -45,7 +81,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(h.maxBody + protocol.HeaderSize + 4 + 4096) // body + header + meta overhead
 
-	tun, err := h.manager.Register(conn, r.URL.Query().Get("subdomain"))
+	tun, err := h.manager.Register(conn, r.URL.Query().Get("subdomain"), userID, authed)
 	if err != nil {
 		h.logger.Error("tunnel_register_failed", "error", err)
 		errPayload, _ := json.Marshal(protocol.TunnelError{Error: err.Error()})
@@ -73,11 +109,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	closeReason := "client_disconnect"
 
-	h.logger.Info("tunnel_open",
+	if authed {
+		go dbpkg.UpdateLastUsed(h.db, keyID)
+	}
+
+	logArgs := []any{
 		"subdomain", tun.ID,
 		"client_ip", ip,
 		"user_agent", ua,
-	)
+		"authed", authed,
+	}
+	if authed {
+		logArgs = append(logArgs, "user_id", userID)
+	}
+	h.logger.Info("tunnel_open", logArgs...)
 
 	defer func() {
 		h.logger.Info("tunnel_close",

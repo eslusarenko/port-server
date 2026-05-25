@@ -45,11 +45,12 @@ func TestEndToEndTunnel(t *testing.T) {
 
 	logger := slog.Default()
 	cfg := &config.Config{
-		Addr:        serverAddr,
-		BaseDomain:  "tunnel.test",
-		TunnelTTL:   time.Hour,
-		LogLevel:    "debug",
-		MaxBodySize: 10 << 20,
+		Addr:          serverAddr,
+		BaseDomain:    "tunnel.test",
+		AllowUnauthed: true,
+		TunnelTTL:     time.Hour,
+		LogLevel:      "debug",
+		MaxBodySize:   10 << 20,
 		Ping: config.PingConfig{
 			Interval: 30 * time.Second,
 			Timeout:  90 * time.Second,

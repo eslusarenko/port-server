@@ -45,3 +45,13 @@
 # Enable only when port-server is NOT directly reachable from the internet.
 # Default: false
 #PORT_TRUST_PROXY_HEADERS=false
+
+# MySQL DSN for API-key authentication and user management.
+# Required unless --allow-unauthed is set. Default: "" (unset = auth disabled)
+#PORT_DB_DSN=user:pass@tcp(127.0.0.1:3306)/port?parseTime=true
+
+# Run in legacy unauthenticated mode when no DB is configured.
+# When set to true, tunnels are accepted without any API key.
+# Has no effect when PORT_DB_DSN is set (auth is always enforced with a DB).
+# Default: false
+#PORT_ALLOW_UNAUTHED=false

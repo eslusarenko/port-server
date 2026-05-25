@@ -16,6 +16,8 @@ type Tunnel struct {
 	ID        string
 	CreatedAt time.Time
 	Conn      *websocket.Conn
+	UserID    int64
+	Authed    bool
 
 	writeMu   sync.Mutex
 	nextReqID atomic.Uint32
@@ -33,11 +35,13 @@ type responseResult struct {
 }
 
 // NewTunnel creates a Tunnel for the given WebSocket connection.
-func NewTunnel(id string, conn *websocket.Conn) *Tunnel {
+func NewTunnel(id string, conn *websocket.Conn, userID int64, authed bool) *Tunnel {
 	return &Tunnel{
 		ID:        id,
 		CreatedAt: time.Now(),
 		Conn:      conn,
+		UserID:    userID,
+		Authed:    authed,
 		pending:   make(map[uint32]chan responseResult),
 	}
 }

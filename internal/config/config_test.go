@@ -348,6 +348,35 @@ func TestLoadFromArgs_BadValueErrors(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnv_DBAuthFields(t *testing.T) {
+	t.Setenv("PORT_DB_DSN", "user:pass@tcp(localhost:3306)/port")
+	t.Setenv("PORT_ALLOW_UNAUTHED", "true")
+
+	cfg := Load()
+	if cfg.DBDSN != "user:pass@tcp(localhost:3306)/port" {
+		t.Fatalf("DBDSN = %q, want expected DSN", cfg.DBDSN)
+	}
+	if !cfg.AllowUnauthed {
+		t.Fatalf("AllowUnauthed = false, want true")
+	}
+}
+
+func TestLoadFromArgs_ConfigFileInvalidAllowUnauthed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "PORT_ALLOW_UNAUTHED=maybe\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	_, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err == nil {
+		t.Fatal("expected error for invalid PORT_ALLOW_UNAUTHED")
+	}
+	if !strings.Contains(err.Error(), "invalid value for PORT_ALLOW_UNAUTHED") {
+		t.Fatalf("error = %q, want invalid value for PORT_ALLOW_UNAUTHED", err)
+	}
+}
+
 func osWriteFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }

@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 
 	"github.com/eslusarenko/port-server/internal/config"
+	dbpkg "github.com/eslusarenko/port-server/internal/db"
 	"github.com/eslusarenko/port-server/internal/proxy"
 	"github.com/eslusarenko/port-server/internal/transport"
 	"github.com/eslusarenko/port-server/internal/tunnel"
@@ -46,7 +49,19 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 func (a *App) Run(ctx context.Context) error {
 	a.mgr = tunnel.NewManager(a.cfg.BaseDomain, a.cfg.TunnelTTL, a.logger)
 
-	wsHandler := transport.NewHandler(a.mgr, a.logger, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
+	var database *sql.DB
+	if a.cfg.DBDSN != "" {
+		var err error
+		database, err = dbpkg.Open(a.cfg.DBDSN)
+		if err != nil {
+			return fmt.Errorf("database: %w", err)
+		}
+		defer func() { _ = database.Close() }()
+	} else if !a.cfg.AllowUnauthed {
+		return fmt.Errorf("PORT_DB_DSN is not set. Authentication requires a database. To run in legacy unauthed-only mode, pass --allow-unauthed")
+	}
+
+	wsHandler := transport.NewHandler(a.mgr, a.logger, database, a.cfg.AllowUnauthed, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
 	proxyHandler := proxy.NewProxyWithOptions(&managerAdapter{a.mgr}, a.cfg.BaseDomain, a.logger, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
 
 	mux := http.NewServeMux()
