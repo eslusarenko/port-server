@@ -1,0 +1,47 @@
+# port-server configuration file
+#
+# Lines are KEY=VALUE. Lines starting with '#' and blank lines are ignored.
+# Unknown keys are skipped with a warning.
+#
+# Lookup: by default, port-server reads "port-server.conf" from the directory
+# of the binary. Override with: port-server --config /path/to/file.conf
+#
+# Resolution priority (lowest -> highest):
+#   defaults -> config file -> CLI flags -> environment variables
+# Env variables always win, so orchestration (k8s, systemd) can override
+# everything without editing this file.
+#
+# Every setting can equivalently be passed as a CLI flag (see --help) or
+# exported in the environment with the same key name.
+
+# Listen address. Default: ":8080"
+#PORT_ADDR=:8080
+
+# Base domain assigned to tunnel subdomains. Default: "tunnel.localhost"
+#PORT_BASE_DOMAIN=tunnel.localhost
+
+# How long an idle tunnel stays alive. Default: "24h"
+#PORT_TUNNEL_TTL=24h
+
+# Log verbosity: debug | info | warn | error. Default: "info"
+#PORT_LOG_LEVEL=info
+
+# Log format: plain | json | silent. Default: "plain"
+#PORT_LOG_TYPE=plain
+
+# Write logs to this file instead of stderr. Empty = stderr. Default: ""
+#PORT_LOG_FILENAME=
+
+# Max request body size in bytes. Default: 10485760 (10 MB)
+#PORT_MAX_BODY_SIZE=10485760
+
+# WebSocket ping interval. Default: "30s"
+#PORT_PING_INTERVAL=30s
+
+# WebSocket ping timeout. Default: "1m30s"
+#PORT_PING_TIMEOUT=1m30s
+
+# Trust X-Forwarded-For / X-Real-IP from a reverse proxy or ingress.
+# Enable only when port-server is NOT directly reachable from the internet.
+# Default: false
+#PORT_TRUST_PROXY_HEADERS=false
