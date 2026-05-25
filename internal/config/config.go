@@ -1,22 +1,25 @@
 package config
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	Addr        string
-	BaseDomain  string
-	TunnelTTL   time.Duration
-	LogLevel    string
-	LogType     string
-	LogFile     string
-	MaxBodySize int64
-	Ping        PingConfig
+	Addr              string
+	BaseDomain        string
+	TunnelTTL         time.Duration
+	LogLevel          string
+	LogType           string
+	LogFile           string
+	MaxBodySize       int64
+	Ping              PingConfig
 	TrustProxyHeaders bool
 }
 
@@ -25,30 +28,195 @@ type PingConfig struct {
 	Timeout  time.Duration
 }
 
-// Load returns a Config populated from environment variables and defaults.
-func Load() *Config {
+// defaults returns a Config with hardcoded defaults (no env).
+func defaults() *Config {
 	return &Config{
-		Addr:        envOr("PORT_ADDR", ":8080"),
-		BaseDomain:  envOr("PORT_BASE_DOMAIN", "tunnel.localhost"),
-		TunnelTTL:   envDuration("PORT_TUNNEL_TTL", 24*time.Hour),
-		LogLevel:    envOr("PORT_LOG_LEVEL", "info"),
-		LogType:     envOr("PORT_LOG_TYPE", "plain"),
-		LogFile:     envOr("PORT_LOG_FILENAME", ""),
-		MaxBodySize: envInt64("PORT_MAX_BODY_SIZE", 10<<20), // 10 MB
+		Addr:        ":8080",
+		BaseDomain:  "tunnel.localhost",
+		TunnelTTL:   24 * time.Hour,
+		LogLevel:    "info",
+		LogType:     "plain",
+		LogFile:     "",
+		MaxBodySize: 10 << 20,
 		Ping: PingConfig{
-			Interval: envDuration("PORT_PING_INTERVAL", 30*time.Second),
-			Timeout:  envDuration("PORT_PING_TIMEOUT", 90*time.Second),
+			Interval: 30 * time.Second,
+			Timeout:  90 * time.Second,
 		},
-		TrustProxyHeaders: envBool("PORT_TRUST_PROXY_HEADERS", false),
+		TrustProxyHeaders: false,
 	}
 }
 
-// LoadFromArgs parses args (typically os.Args[1:]) on top of env/defaults.
-// Precedence: flag > env > default.
+// applyEnv overwrites cfg fields with environment variable values where set.
+func applyEnv(cfg *Config) {
+	if v := os.Getenv("PORT_ADDR"); v != "" {
+		cfg.Addr = v
+	}
+	if v := os.Getenv("PORT_BASE_DOMAIN"); v != "" {
+		cfg.BaseDomain = v
+	}
+	if v := os.Getenv("PORT_TUNNEL_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.TunnelTTL = d
+		}
+	}
+	if v := os.Getenv("PORT_LOG_LEVEL"); v != "" {
+		cfg.LogLevel = v
+	}
+	if v := os.Getenv("PORT_LOG_TYPE"); v != "" {
+		cfg.LogType = v
+	}
+	if v := os.Getenv("PORT_LOG_FILENAME"); v != "" {
+		cfg.LogFile = v
+	}
+	if v := os.Getenv("PORT_MAX_BODY_SIZE"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			cfg.MaxBodySize = n
+		}
+	}
+	if v := os.Getenv("PORT_PING_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Ping.Interval = d
+		}
+	}
+	if v := os.Getenv("PORT_PING_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Ping.Timeout = d
+		}
+	}
+	switch os.Getenv("PORT_TRUST_PROXY_HEADERS") {
+	case "1", "true", "yes":
+		cfg.TrustProxyHeaders = true
+	case "0", "false", "no":
+		cfg.TrustProxyHeaders = false
+	}
+}
+
+// Load returns a Config populated from environment variables and defaults.
+func Load() *Config {
+	cfg := defaults()
+	applyEnv(cfg)
+	return cfg
+}
+
+// parseConfigFile reads a KEY=VALUE config file and applies values to cfg.
+// Lines starting with # (after trim) are comments. Blank lines are skipped.
+// Unknown keys warn to stderr. Bad values return an error.
+func parseConfigFile(path string, cfg *Config) (retErr error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && retErr == nil {
+			retErr = cerr
+		}
+	}()
+
+	scanner := bufio.NewScanner(f)
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			return fmt.Errorf("config: %s: line %d: malformed line (expected KEY=VALUE)", path, lineNum)
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+
+		switch key {
+		case "PORT_ADDR":
+			cfg.Addr = val
+		case "PORT_BASE_DOMAIN":
+			cfg.BaseDomain = val
+		case "PORT_TUNNEL_TTL":
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %w", path, lineNum, key, err)
+			}
+			cfg.TunnelTTL = d
+		case "PORT_LOG_LEVEL":
+			cfg.LogLevel = val
+		case "PORT_LOG_TYPE":
+			cfg.LogType = val
+		case "PORT_LOG_FILENAME":
+			cfg.LogFile = val
+		case "PORT_MAX_BODY_SIZE":
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %w", path, lineNum, key, err)
+			}
+			cfg.MaxBodySize = n
+		case "PORT_PING_INTERVAL":
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %w", path, lineNum, key, err)
+			}
+			cfg.Ping.Interval = d
+		case "PORT_PING_TIMEOUT":
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %w", path, lineNum, key, err)
+			}
+			cfg.Ping.Timeout = d
+		case "PORT_TRUST_PROXY_HEADERS":
+			switch val {
+			case "1", "true", "yes":
+				cfg.TrustProxyHeaders = true
+			case "0", "false", "no":
+				cfg.TrustProxyHeaders = false
+			default:
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %q (want true/false/1/0/yes/no)", path, lineNum, key, val)
+			}
+		default:
+			_, _ = fmt.Fprintf(os.Stderr, "port-server: config: unknown key %q, ignoring\n", key)
+		}
+	}
+	return scanner.Err()
+}
+
+// autoConfigPath returns the default config file path next to the binary, or "".
+func autoConfigPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), "port-server.conf")
+}
+
+// LoadFromArgs parses args (typically os.Args[1:]) applying priority:
+// env > flag > config file > default.
 // Pass flag.ExitOnError for normal CLI use, flag.ContinueOnError for tests.
 // The bool return is true when --version was requested; in that case cfg is nil.
 func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, bool, error) {
-	cfg := Load()
+	configPath := ""
+	for i, a := range args {
+		switch {
+		case a == "--config" || a == "-config":
+			if i+1 < len(args) {
+				configPath = args[i+1]
+			}
+		case strings.HasPrefix(a, "--config="):
+			configPath = strings.TrimPrefix(a, "--config=")
+		case strings.HasPrefix(a, "-config="):
+			configPath = strings.TrimPrefix(a, "-config=")
+		}
+	}
+	if configPath == "" {
+		configPath = autoConfigPath()
+	}
+
+	cfg := defaults()
+
+	if err := parseConfigFile(configPath, cfg); err != nil {
+		return nil, false, err
+	}
 
 	fs := flag.NewFlagSet("port-server", errorHandling)
 	fs.Usage = func() {
@@ -60,7 +228,6 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 			} else {
 				_, _ = fmt.Fprintf(fs.Output(), "  --%s\n", f.Name)
 			}
-
 			_, _ = fmt.Fprintf(fs.Output(), "\t%s", usage)
 			if f.DefValue != "" {
 				defVal := f.DefValue
@@ -87,11 +254,12 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 	fs.StringVar(&cfg.LogType, "log-type", cfg.LogType, "log format: plain|json|silent (env PORT_LOG_TYPE)")
 	fs.BoolVar(&jsonLogs, "json-logs", false, "shortcut for --log-type=json (overridden by explicit --log-type)")
 	fs.StringVar(&cfg.LogFile, "log-file", cfg.LogFile, "write logs to this file instead of stderr (env PORT_LOG_FILENAME)")
+	fs.String("config", "", "path to config file (default: port-server.conf next to binary)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, false, err
 	}
-	// If --json-logs was set AND --log-type was NOT explicitly set, treat it as --log-type=json.
+
 	if jsonLogs {
 		logTypeExplicit := false
 		fs.Visit(func(f *flag.Flag) {
@@ -103,10 +271,11 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 			cfg.LogType = "json"
 		}
 	}
-	// Validate log-type.
+
+	applyEnv(cfg)
+
 	switch cfg.LogType {
 	case "plain", "json", "silent":
-		// valid
 	default:
 		return nil, false, fmt.Errorf("invalid --log-type %q: must be plain, json, or silent", cfg.LogType)
 	}
@@ -114,39 +283,4 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 		return nil, true, nil
 	}
 	return cfg, false, nil
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func envDuration(key string, fallback time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return fallback
-}
-
-func envInt64(key string, fallback int64) int64 {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return n
-		}
-	}
-	return fallback
-}
-
-func envBool(key string, fallback bool) bool {
-	switch os.Getenv(key) {
-	case "1", "true", "yes":
-		return true
-	case "0", "false", "no":
-		return false
-	}
-	return fallback
 }

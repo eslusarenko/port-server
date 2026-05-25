@@ -2,6 +2,9 @@ package config
 
 import (
 	"flag"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,20 +87,19 @@ func TestLoadFromArgs_FlagOverridesDefault(t *testing.T) {
 	if cfg.Addr != ":1234" {
 		t.Errorf("Addr = %q, want :1234", cfg.Addr)
 	}
-	// Everything else should stay at defaults.
 	if cfg.BaseDomain != "tunnel.localhost" {
 		t.Errorf("BaseDomain = %q, want tunnel.localhost", cfg.BaseDomain)
 	}
 }
 
-func TestLoadFromArgs_FlagOverridesEnv(t *testing.T) {
+func TestLoadFromArgs_EnvOverridesFlag(t *testing.T) {
 	t.Setenv("PORT_ADDR", ":9999")
 	cfg, _, err := LoadFromArgs([]string{"-addr=:7777"}, flag.ContinueOnError)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Addr != ":7777" {
-		t.Errorf("Addr = %q, want :7777 (flag should win over env)", cfg.Addr)
+	if cfg.Addr != ":9999" {
+		t.Errorf("Addr = %q, want :9999 (env should win over flag)", cfg.Addr)
 	}
 }
 
@@ -201,14 +203,14 @@ func TestLoadFromEnv_LogFields(t *testing.T) {
 	}
 }
 
-func TestLoadFromArgs_LogTypeFlagOverridesEnv(t *testing.T) {
+func TestLoadFromArgs_EnvOverridesLogTypeFlag(t *testing.T) {
 	t.Setenv("PORT_LOG_TYPE", "json")
 	cfg, _, err := LoadFromArgs([]string{"--log-type=plain"}, flag.ContinueOnError)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.LogType != "plain" {
-		t.Errorf("LogType = %q, want plain (flag should win over env)", cfg.LogType)
+	if cfg.LogType != "json" {
+		t.Errorf("LogType = %q, want json (env should win over flag)", cfg.LogType)
 	}
 }
 
@@ -237,4 +239,115 @@ func TestLoadFromArgs_InvalidLogTypeErrors(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid --log-type, got nil")
 	}
+}
+
+func TestLoadFromArgs_ConfigFileAppliesValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "PORT_ADDR=:3333\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	cfg, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Addr != ":3333" {
+		t.Errorf("Addr = %q, want :3333", cfg.Addr)
+	}
+}
+
+func TestLoadFromArgs_FlagOverridesConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "PORT_ADDR=:3333\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	cfg, _, err := LoadFromArgs([]string{"--config", path, "--addr=:4444"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Addr != ":4444" {
+		t.Errorf("Addr = %q, want :4444", cfg.Addr)
+	}
+}
+
+func TestLoadFromArgs_EnvOverridesFlagAndConfig(t *testing.T) {
+	t.Setenv("PORT_ADDR", ":9999")
+
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "PORT_ADDR=:3333\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	cfg, _, err := LoadFromArgs([]string{"--config", path, "--addr=:4444"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Addr != ":9999" {
+		t.Errorf("Addr = %q, want :9999", cfg.Addr)
+	}
+}
+
+func TestLoadFromArgs_UnknownKeyWarnsButDoesntFail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "UNKNOWN_KEY=foo\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	_, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadFromArgs_MissingConfigFileIsOK(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist.conf")
+
+	cfg, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("cfg should not be nil")
+	}
+}
+
+func TestLoadFromArgs_MalformedLineErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "NOTAVALIDLINE\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	_, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "malformed line") {
+		t.Fatalf("error = %q, want malformed line", err)
+	}
+}
+
+func TestLoadFromArgs_BadValueErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "PORT_TUNNEL_TTL=not-a-duration\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	_, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid value for PORT_TUNNEL_TTL") {
+		t.Fatalf("error = %q, want invalid value for PORT_TUNNEL_TTL", err)
+	}
+}
+
+func osWriteFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
 }
