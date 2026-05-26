@@ -55,3 +55,19 @@
 # Has no effect when PORT_DB_DSN is set (auth is always enforced with a DB).
 # Default: false
 #PORT_ALLOW_UNAUTHED=false
+
+# TTL cap applied to unauthenticated tunnels. Effective TTL = min(PORT_TUNNEL_TTL, PORT_UNAUTHED_TTL).
+# Only enforced when PORT_ALLOW_UNAUTHED=true and PORT_NO_UNAUTHED_RESTRICTIONS is not set.
+# Default: "2h"
+#PORT_UNAUTHED_TTL=2h
+
+# Comma-separated list of subdomains that cannot be requested via --domain.
+# Applied to both authed and unauthed tunnels (defense-in-depth).
+# Operator-supplied — no built-in defaults. Empty list = no enforcement.
+# Recommended baseline for public deployments:
+#PORT_RESERVED_SUBDOMAINS=admin,login,dashboard,billing,support,donate,office,api,www,mail,status,auth,account,accounts,secure,portal,help,docs,pay,payment,payments,shop,store
+
+# When true, removes the TTL cap and --domain block for unauthenticated tunnels.
+# Use for single-operator deployments where unauthed == trusted.
+# Default: false
+#PORT_NO_UNAUTHED_RESTRICTIONS=false

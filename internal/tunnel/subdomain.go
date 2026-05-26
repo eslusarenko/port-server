@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"strings"
 )
 
 const (
@@ -39,4 +40,16 @@ func GenerateSubdomain() (string, error) {
 		b[i] = subdomainCharset[n.Int64()]
 	}
 	return string(b), nil
+}
+
+// IsReserved reports whether subdomain (case-insensitive) is in the reserved list.
+// The list itself is purely operator-supplied via PORT_RESERVED_SUBDOMAINS / config.
+func IsReserved(subdomain string, reserved []string) bool {
+	lower := strings.ToLower(subdomain)
+	for _, r := range reserved {
+		if lower == strings.ToLower(r) {
+			return true
+		}
+	}
+	return false
 }

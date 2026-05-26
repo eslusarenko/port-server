@@ -32,3 +32,34 @@ func TestGenerateSubdomainUniqueness(t *testing.T) {
 		seen[s] = true
 	}
 }
+
+func TestIsReserved(t *testing.T) {
+	reserved := []string{"admin", "login", "DASHBOARD"}
+	cases := []struct {
+		sub  string
+		want bool
+	}{
+		{"admin", true},
+		{"ADMIN", true},
+		{"Admin", true},
+		{"login", true},
+		{"dashboard", true},
+		{"DASHBOARD", true},
+		{"random", false},
+		{"adminx", false},
+		{"xadmin", false},
+	}
+	for _, c := range cases {
+		got := IsReserved(c.sub, reserved)
+		if got != c.want {
+			t.Errorf("IsReserved(%q) = %v, want %v", c.sub, got, c.want)
+		}
+	}
+}
+
+func TestIsReservedNilList(t *testing.T) {
+	if IsReserved("admin", nil) {
+		t.Error("IsReserved with nil list should return false")
+	}
+}
+

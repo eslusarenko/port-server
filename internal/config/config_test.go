@@ -377,6 +377,78 @@ func TestLoadFromArgs_ConfigFileInvalidAllowUnauthed(t *testing.T) {
 	}
 }
 
+func TestLoadDefaults_Phase2Fields(t *testing.T) {
+	cfg := Load()
+	if cfg.UnauthedTTL != 2*time.Hour {
+		t.Errorf("UnauthedTTL = %v, want 2h", cfg.UnauthedTTL)
+	}
+	if cfg.ReservedSubdomains != nil {
+		t.Errorf("ReservedSubdomains = %v, want nil", cfg.ReservedSubdomains)
+	}
+	if cfg.NoUnauthedRestrictions {
+		t.Errorf("NoUnauthedRestrictions = true, want false")
+	}
+}
+
+func TestLoadFromEnv_Phase2Fields(t *testing.T) {
+	t.Setenv("PORT_UNAUTHED_TTL", "30m")
+	t.Setenv("PORT_RESERVED_SUBDOMAINS", "foo, bar , baz")
+	t.Setenv("PORT_NO_UNAUTHED_RESTRICTIONS", "true")
+
+	cfg := Load()
+	if cfg.UnauthedTTL != 30*time.Minute {
+		t.Errorf("UnauthedTTL = %v, want 30m", cfg.UnauthedTTL)
+	}
+	if len(cfg.ReservedSubdomains) != 3 || cfg.ReservedSubdomains[0] != "foo" || cfg.ReservedSubdomains[1] != "bar" || cfg.ReservedSubdomains[2] != "baz" {
+		t.Errorf("ReservedSubdomains = %v, want [foo bar baz]", cfg.ReservedSubdomains)
+	}
+	if !cfg.NoUnauthedRestrictions {
+		t.Errorf("NoUnauthedRestrictions = false, want true")
+	}
+}
+
+func TestLoadFromArgs_Phase2Flags(t *testing.T) {
+	args := []string{
+		"--unauthed-ttl=45m",
+		"--reserved-subdomains=alpha,beta",
+		"--no-unauthed-restrictions",
+	}
+	cfg, _, err := LoadFromArgs(args, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.UnauthedTTL != 45*time.Minute {
+		t.Errorf("UnauthedTTL = %v, want 45m", cfg.UnauthedTTL)
+	}
+	if len(cfg.ReservedSubdomains) != 2 || cfg.ReservedSubdomains[0] != "alpha" || cfg.ReservedSubdomains[1] != "beta" {
+		t.Errorf("ReservedSubdomains = %v, want [alpha beta]", cfg.ReservedSubdomains)
+	}
+	if !cfg.NoUnauthedRestrictions {
+		t.Errorf("NoUnauthedRestrictions = false, want true")
+	}
+}
+
+func TestLoadFromArgs_ConfigFilePhase2Fields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "port-server.conf")
+	content := "PORT_UNAUTHED_TTL=1h\nPORT_RESERVED_SUBDOMAINS=x,y\nPORT_NO_UNAUTHED_RESTRICTIONS=true\n"
+	if err := osWriteFile(path, content); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+	cfg, _, err := LoadFromArgs([]string{"--config", path}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.UnauthedTTL != time.Hour {
+		t.Errorf("UnauthedTTL = %v, want 1h", cfg.UnauthedTTL)
+	}
+	if len(cfg.ReservedSubdomains) != 2 {
+		t.Errorf("ReservedSubdomains = %v, want [x y]", cfg.ReservedSubdomains)
+	}
+	if !cfg.NoUnauthedRestrictions {
+		t.Errorf("NoUnauthedRestrictions = false, want true")
+	}
+}
+
 func osWriteFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }

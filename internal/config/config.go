@@ -16,6 +16,9 @@ type Config struct {
 	BaseDomain        string
 	DBDSN             string
 	AllowUnauthed     bool
+	UnauthedTTL       time.Duration
+	ReservedSubdomains []string
+	NoUnauthedRestrictions bool
 	TunnelTTL         time.Duration
 	LogLevel          string
 	LogType           string
@@ -45,6 +48,7 @@ func defaults() *Config {
 			Timeout:  90 * time.Second,
 		},
 		TrustProxyHeaders: false,
+		UnauthedTTL:       2 * time.Hour,
 	}
 }
 
@@ -93,6 +97,27 @@ func applyEnv(cfg *Config) {
 		cfg.AllowUnauthed = true
 	case "0", "false", "no":
 		cfg.AllowUnauthed = false
+	}
+	if v := os.Getenv("PORT_UNAUTHED_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.UnauthedTTL = d
+		}
+	}
+	if v := os.Getenv("PORT_RESERVED_SUBDOMAINS"); v != "" {
+		parts := strings.Split(v, ",")
+		reserved := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				reserved = append(reserved, s)
+			}
+		}
+		cfg.ReservedSubdomains = reserved
+	}
+	switch os.Getenv("PORT_NO_UNAUTHED_RESTRICTIONS") {
+	case "1", "true", "yes":
+		cfg.NoUnauthedRestrictions = true
+	case "0", "false", "no":
+		cfg.NoUnauthedRestrictions = false
 	}
 	switch os.Getenv("PORT_TRUST_PROXY_HEADERS") {
 	case "1", "true", "yes":
@@ -187,6 +212,30 @@ func parseConfigFile(path string, cfg *Config) (retErr error) {
 			default:
 				return fmt.Errorf("config: %s: line %d: invalid value for %s: %q", path, lineNum, key, val)
 			}
+		case "PORT_UNAUTHED_TTL":
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %w", path, lineNum, key, err)
+			}
+			cfg.UnauthedTTL = d
+		case "PORT_RESERVED_SUBDOMAINS":
+			parts := strings.Split(val, ",")
+			reserved := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if s := strings.TrimSpace(p); s != "" {
+					reserved = append(reserved, s)
+				}
+			}
+			cfg.ReservedSubdomains = reserved
+		case "PORT_NO_UNAUTHED_RESTRICTIONS":
+			switch val {
+			case "1", "true", "yes":
+				cfg.NoUnauthedRestrictions = true
+			case "0", "false", "no":
+				cfg.NoUnauthedRestrictions = false
+			default:
+				return fmt.Errorf("config: %s: line %d: invalid value for %s: %q (want true/false/1/0/yes/no)", path, lineNum, key, val)
+			}
 		case "PORT_TRUST_PROXY_HEADERS":
 			switch val {
 			case "1", "true", "yes":
@@ -273,7 +322,11 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 	fs.DurationVar(&cfg.Ping.Interval, "ping-interval", cfg.Ping.Interval, "WebSocket ping interval (env PORT_PING_INTERVAL)")
 	fs.DurationVar(&cfg.Ping.Timeout, "ping-timeout", cfg.Ping.Timeout, "WebSocket ping timeout (env PORT_PING_TIMEOUT)")
 	fs.StringVar(&cfg.DBDSN, "db-dsn", cfg.DBDSN, "MySQL connection string (env PORT_DB_DSN)")
-	fs.BoolVar(&cfg.AllowUnauthed, "allow-unauthed", cfg.AllowUnauthed, "allow unauthenticated tunnels when no DB is configured (env PORT_ALLOW_UNAUTHED)")
+	fs.BoolVar(&cfg.AllowUnauthed, "allow-unauthed", cfg.AllowUnauthed, "permit tunnels without an Authorization header (required without a DB; in DB mode opts unauthed connections in alongside authed) (env PORT_ALLOW_UNAUTHED)")
+	var reservedSubdomainsStr string
+	fs.StringVar(&reservedSubdomainsStr, "reserved-subdomains", "", "comma-separated list of additional reserved subdomains (env PORT_RESERVED_SUBDOMAINS)")
+	fs.DurationVar(&cfg.UnauthedTTL, "unauthed-ttl", cfg.UnauthedTTL, "TTL cap for unauthenticated tunnels (env PORT_UNAUTHED_TTL)")
+	fs.BoolVar(&cfg.NoUnauthedRestrictions, "no-unauthed-restrictions", cfg.NoUnauthedRestrictions, "disable TTL cap and --domain block for unauthed tunnels (env PORT_NO_UNAUTHED_RESTRICTIONS)")
 	fs.BoolVar(&cfg.TrustProxyHeaders, "trust-proxy-headers", cfg.TrustProxyHeaders, "trust X-Forwarded-For / X-Real-IP headers from reverse proxy (env PORT_TRUST_PROXY_HEADERS)")
 	fs.StringVar(&cfg.LogType, "log-type", cfg.LogType, "log format: plain|json|silent (env PORT_LOG_TYPE)")
 	fs.BoolVar(&jsonLogs, "json-logs", false, "shortcut for --log-type=json (overridden by explicit --log-type)")
@@ -282,6 +335,16 @@ func LoadFromArgs(args []string, errorHandling flag.ErrorHandling) (*Config, boo
 
 	if err := fs.Parse(args); err != nil {
 		return nil, false, err
+	}
+	if reservedSubdomainsStr != "" {
+		parts := strings.Split(reservedSubdomainsStr, ",")
+		reserved := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				reserved = append(reserved, s)
+			}
+		}
+		cfg.ReservedSubdomains = reserved
 	}
 
 	if jsonLogs {

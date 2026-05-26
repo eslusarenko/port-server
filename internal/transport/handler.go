@@ -18,23 +18,42 @@ import (
 
 // Handler upgrades HTTP connections to WebSocket and manages tunnel lifecycles.
 type Handler struct {
-	manager           *tunnel.Manager
-	logger            *slog.Logger
-	db                *sql.DB
-	allowUnauthed     bool
-	maxBody           int64
-	trustProxyHeaders bool
+	manager            *tunnel.Manager
+	logger             *slog.Logger
+	db                 *sql.DB
+	allowUnauthed      bool
+	noUnauthedRestrictions bool
+	tunnelTTL          time.Duration
+	unauthedTTL        time.Duration
+	reserved           []string
+	maxBody            int64
+	trustProxyHeaders  bool
 }
 
 // NewHandler creates a new WebSocket tunnel handler.
-func NewHandler(manager *tunnel.Manager, logger *slog.Logger, database *sql.DB, allowUnauthed bool, maxBody int64, trustProxyHeaders bool) *Handler {
+func NewHandler(
+	manager *tunnel.Manager,
+	logger *slog.Logger,
+	database *sql.DB,
+	allowUnauthed bool,
+	noUnauthedRestrictions bool,
+	tunnelTTL time.Duration,
+	unauthedTTL time.Duration,
+	reserved []string,
+	maxBody int64,
+	trustProxyHeaders bool,
+) *Handler {
 	return &Handler{
-		manager:           manager,
-		logger:            logger,
-		db:                database,
-		allowUnauthed:     allowUnauthed,
-		maxBody:           maxBody,
-		trustProxyHeaders: trustProxyHeaders,
+		manager:                manager,
+		logger:                 logger,
+		db:                     database,
+		allowUnauthed:          allowUnauthed,
+		noUnauthedRestrictions: noUnauthedRestrictions,
+		tunnelTTL:              tunnelTTL,
+		unauthedTTL:            unauthedTTL,
+		reserved:               reserved,
+		maxBody:                maxBody,
+		trustProxyHeaders:      trustProxyHeaders,
 	}
 }
 
@@ -54,6 +73,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if rawKey != "" {
+		// Explicit auth attempt: must succeed or return 401.
 		if h.db == nil {
 			http.Error(w, "authentication not configured", http.StatusUnauthorized)
 			return
@@ -66,9 +86,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		userID = res.UserID
 		keyID = res.KeyID
 		authed = true
-	} else if !h.allowUnauthed {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+	} else {
+		// No Authorization header.
+		if !h.allowUnauthed {
+			// DB mode strict (default): reject.
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// allowUnauthed is set: accept as unauthed.
+	}
+
+	// Compute effective TTL.
+	effectiveTTL := h.tunnelTTL
+	if !authed && !h.noUnauthedRestrictions {
+		if h.unauthedTTL < effectiveTTL {
+			effectiveTTL = h.unauthedTTL
+		}
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -81,7 +114,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(h.maxBody + protocol.HeaderSize + 4 + 4096) // body + header + meta overhead
 
-	tun, err := h.manager.Register(conn, r.URL.Query().Get("subdomain"), userID, authed)
+	opts := tunnel.RegisterOptions{
+		Desired:        r.URL.Query().Get("subdomain"),
+		UserID:         userID,
+		Authed:         authed,
+		TTL:            effectiveTTL,
+		Reserved:       h.reserved,
+		NoRestrictions: h.noUnauthedRestrictions,
+	}
+
+	tun, err := h.manager.Register(conn, opts)
 	if err != nil {
 		h.logger.Error("tunnel_register_failed", "error", err)
 		errPayload, _ := json.Marshal(protocol.TunnelError{Error: err.Error()})

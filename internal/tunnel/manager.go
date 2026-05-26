@@ -12,41 +12,58 @@ import (
 
 const maxSubdomainRetries = 10
 
+// RegisterOptions controls how a tunnel is registered.
+type RegisterOptions struct {
+	Desired        string        // requested subdomain ("" = random)
+	UserID         int64
+	Authed         bool
+	TTL            time.Duration // effective TTL for this tunnel
+	Reserved       []string      // list of reserved subdomains to reject
+	NoRestrictions bool          // when true, unauthed restrictions are lifted
+}
+
 // Manager tracks all active tunnels, keyed by subdomain.
 type Manager struct {
 	mu         sync.RWMutex
 	tunnels    map[string]*Tunnel
 	baseDomain string
-	ttl        time.Duration
 	logger     *slog.Logger
 }
 
 // NewManager creates a tunnel manager.
-func NewManager(baseDomain string, ttl time.Duration, logger *slog.Logger) *Manager {
+func NewManager(baseDomain string, logger *slog.Logger) *Manager {
 	return &Manager{
 		tunnels:    make(map[string]*Tunnel),
 		baseDomain: baseDomain,
-		ttl:        ttl,
 		logger:     logger,
 	}
 }
 
 // Register creates a new tunnel for the given WebSocket connection.
-// If desired is non-empty, it is validated and used as the subdomain (error if taken).
-// Otherwise a random subdomain is generated.
-func (m *Manager) Register(conn *websocket.Conn, desired string, userID int64, authed bool) (*Tunnel, error) {
+// For authed tunnels: desired subdomain honored (unless reserved or taken).
+// For unauthed tunnels without NoRestrictions: desired subdomain rejected outright.
+// Reserved subdomains are always blocked for --domain requests (defense-in-depth).
+func (m *Manager) Register(conn *websocket.Conn, opts RegisterOptions) (*Tunnel, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if desired != "" {
-		if err := ValidateSubdomain(desired); err != nil {
+	if opts.Desired != "" {
+		// Unauthed without override: reject --domain entirely.
+		if !opts.Authed && !opts.NoRestrictions {
+			return nil, fmt.Errorf("--domain requires authentication")
+		}
+		// Check reserved list.
+		if IsReserved(opts.Desired, opts.Reserved) {
+			return nil, fmt.Errorf("subdomain %q is reserved and cannot be used", opts.Desired)
+		}
+		if err := ValidateSubdomain(opts.Desired); err != nil {
 			return nil, err
 		}
-		if _, taken := m.tunnels[desired]; taken {
-			return nil, fmt.Errorf("subdomain %q is already in use", desired)
+		if _, taken := m.tunnels[opts.Desired]; taken {
+			return nil, fmt.Errorf("subdomain %q is already in use", opts.Desired)
 		}
-		t := NewTunnel(desired, conn, userID, authed)
-		m.tunnels[desired] = t
+		t := NewTunnel(opts.Desired, conn, opts.UserID, opts.Authed, opts.TTL)
+		m.tunnels[opts.Desired] = t
 		return t, nil
 	}
 
@@ -58,7 +75,7 @@ func (m *Manager) Register(conn *websocket.Conn, desired string, userID int64, a
 		if _, exists := m.tunnels[sub]; exists {
 			continue
 		}
-		t := NewTunnel(sub, conn, userID, authed)
+		t := NewTunnel(sub, conn, opts.UserID, opts.Authed, opts.TTL)
 		m.tunnels[sub] = t
 		return t, nil
 	}
@@ -109,7 +126,7 @@ func (m *Manager) evictExpired() {
 	m.mu.Lock()
 	var expired []*Tunnel
 	for sub, t := range m.tunnels {
-		if now.Sub(t.CreatedAt) > m.ttl {
+		if now.After(t.ExpiresAt) {
 			expired = append(expired, t)
 			delete(m.tunnels, sub)
 		}

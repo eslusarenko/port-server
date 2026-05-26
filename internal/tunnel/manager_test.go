@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 func testManager(t *testing.T) *Manager {
 	t.Helper()
-	return NewManager("test.localhost", time.Hour, slog.Default())
+	return NewManager("test.localhost", slog.Default())
 }
 
 func testWebSocketConn(t *testing.T) (*websocket.Conn, func()) {
@@ -47,7 +48,7 @@ func TestManagerRegisterLookupRemove(t *testing.T) {
 	conn, cleanup := testWebSocketConn(t)
 	defer cleanup()
 
-	tun, err := m.Register(conn, "", 0, false)
+	tun, err := m.Register(conn, RegisterOptions{TTL: time.Hour})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestManagerConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			conn, cleanup := testWebSocketConn(t)
 			defer cleanup()
-			tun, err := m.Register(conn, "", 0, false)
+			tun, err := m.Register(conn, RegisterOptions{TTL: time.Hour})
 			if err != nil {
 				t.Errorf("Register: %v", err)
 				return
@@ -124,4 +125,114 @@ func TestManagerConcurrentAccess(t *testing.T) {
 		}(id)
 	}
 	wg.Wait()
+}
+
+func TestManagerRegisterUnauthedRejectsDomain(t *testing.T) {
+	m := testManager(t)
+	conn, cleanup := testWebSocketConn(t)
+	defer cleanup()
+
+	_, err := m.Register(conn, RegisterOptions{
+		Desired: "mything",
+		Authed:  false,
+		TTL:     time.Hour,
+	})
+	if err == nil {
+		t.Fatal("expected error for unauthed --domain, got nil")
+	}
+	if !strings.Contains(err.Error(), "requires authentication") {
+		t.Errorf("error = %q, want 'requires authentication'", err.Error())
+	}
+}
+
+func TestManagerRegisterUnauthedNoRestrictionsAllowsDomain(t *testing.T) {
+	m := testManager(t)
+	conn, cleanup := testWebSocketConn(t)
+	defer cleanup()
+
+	tun, err := m.Register(conn, RegisterOptions{
+		Desired:        "mything",
+		Authed:         false,
+		TTL:            time.Hour,
+		NoRestrictions: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tun.ID != "mything" {
+		t.Errorf("tunnel ID = %q, want mything", tun.ID)
+	}
+}
+
+func TestManagerRegisterRejectsReservedSubdomain(t *testing.T) {
+	m := testManager(t)
+	conn, cleanup := testWebSocketConn(t)
+	defer cleanup()
+
+	// Reserved subdomain is blocked for authed users too.
+	_, err := m.Register(conn, RegisterOptions{
+		Desired:  "admin",
+		Authed:   true,
+		TTL:      time.Hour,
+		Reserved: []string{"admin", "login"},
+	})
+	if err == nil {
+		t.Fatal("expected error for reserved subdomain, got nil")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Errorf("error = %q, want 'reserved'", err.Error())
+	}
+}
+
+func TestManagerRegisterReservedSubdomainCaseInsensitive(t *testing.T) {
+	m := testManager(t)
+	conn, cleanup := testWebSocketConn(t)
+	defer cleanup()
+
+	_, err := m.Register(conn, RegisterOptions{
+		Desired:  "ADMIN",
+		Authed:   true,
+		TTL:      time.Hour,
+		Reserved: []string{"admin"},
+	})
+	if err == nil {
+		t.Fatal("expected error for reserved subdomain (case-insensitive), got nil")
+	}
+}
+
+func TestManagerRegisterAuthedDomainAllowed(t *testing.T) {
+	m := testManager(t)
+	conn, cleanup := testWebSocketConn(t)
+	defer cleanup()
+
+	tun, err := m.Register(conn, RegisterOptions{
+		Desired:  "mything",
+		Authed:   true,
+		TTL:      time.Hour,
+		Reserved: []string{"admin"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tun.ID != "mything" {
+		t.Errorf("tunnel ID = %q, want mything", tun.ID)
+	}
+}
+
+func TestManagerRegisterExpiresAt(t *testing.T) {
+	m := testManager(t)
+	conn, cleanup := testWebSocketConn(t)
+	defer cleanup()
+
+	ttl := 5 * time.Minute
+	before := time.Now()
+	tun, err := m.Register(conn, RegisterOptions{TTL: ttl})
+	after := time.Now()
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	// ExpiresAt should be within [before+ttl, after+ttl].
+	if tun.ExpiresAt.Before(before.Add(ttl)) || tun.ExpiresAt.After(after.Add(ttl)) {
+		t.Errorf("ExpiresAt = %v, want between %v and %v", tun.ExpiresAt, before.Add(ttl), after.Add(ttl))
+	}
 }

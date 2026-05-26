@@ -47,7 +47,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 
 // Run starts the server and blocks until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
-	a.mgr = tunnel.NewManager(a.cfg.BaseDomain, a.cfg.TunnelTTL, a.logger)
+	a.mgr = tunnel.NewManager(a.cfg.BaseDomain, a.logger)
 
 	var database *sql.DB
 	if a.cfg.DBDSN != "" {
@@ -61,7 +61,21 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("PORT_DB_DSN is not set. Authentication requires a database. To run in legacy unauthed-only mode, pass --allow-unauthed")
 	}
 
-	wsHandler := transport.NewHandler(a.mgr, a.logger, database, a.cfg.AllowUnauthed, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
+	// Reserved subdomain list is purely operator-supplied (PORT_RESERVED_SUBDOMAINS).
+	// An empty list means no enforcement.
+	reserved := a.cfg.ReservedSubdomains
+	wsHandler := transport.NewHandler(
+		a.mgr,
+		a.logger,
+		database,
+		a.cfg.AllowUnauthed,
+		a.cfg.NoUnauthedRestrictions,
+		a.cfg.TunnelTTL,
+		a.cfg.UnauthedTTL,
+		reserved,
+		a.cfg.MaxBodySize,
+		a.cfg.TrustProxyHeaders,
+	)
 	proxyHandler := proxy.NewProxyWithOptions(&managerAdapter{a.mgr}, a.cfg.BaseDomain, a.logger, a.cfg.MaxBodySize, a.cfg.TrustProxyHeaders)
 
 	mux := http.NewServeMux()
