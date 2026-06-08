@@ -197,7 +197,21 @@ func (h *Handler) readLoop(ctx context.Context, tun *tunnel.Tunnel, closeReason 
 		}
 
 		switch msgType {
-		case protocol.TypeHttpResponse:
+		case protocol.TypeHttpResponseHead:
+			meta, _, err := protocol.DecodeHttpResponseMeta(payload)
+			if err != nil {
+				h.logger.Warn("malformed_http_response", "subdomain", tun.ID, "error", err)
+				continue
+			}
+			tun.HandleResponseHead(requestID, meta)
+
+		case protocol.TypeHttpResponseChunk:
+			tun.HandleResponseChunk(requestID, payload)
+
+		case protocol.TypeHttpResponseEnd:
+			tun.HandleResponseEnd(requestID, string(payload))
+
+		case protocol.TypeHttpResponse: // legacy one-shot response (backward compat)
 			meta, body, err := protocol.DecodeHttpResponseMeta(payload)
 			if err != nil {
 				h.logger.Warn("malformed_http_response", "subdomain", tun.ID, "error", err)

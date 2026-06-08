@@ -12,9 +12,10 @@ import (
 	"github.com/eslusarenko/port-server/internal/protocol"
 )
 
-// TunnelForwarder forwards an HTTP request through a tunnel and returns the response.
+// TunnelForwarder forwards an HTTP request through a tunnel and returns the
+// response headers plus a streaming body.
 type TunnelForwarder interface {
-	ForwardRequest(ctx context.Context, meta protocol.HttpRequestMeta, body []byte) (protocol.HttpResponseMeta, []byte, error)
+	ForwardRequest(ctx context.Context, meta protocol.HttpRequestMeta, body []byte) (protocol.HttpResponseMeta, io.ReadCloser, error)
 }
 
 // TunnelLookup finds a tunnel by subdomain.
@@ -101,6 +102,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad gateway", http.StatusBadGateway)
 		return
 	}
+	defer func() { _ = respBody.Close() }()
+
+	// Write response headers (Content-Length forwarded verbatim from origin).
+	for k, vs := range respMeta.Headers {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(respMeta.StatusCode)
+
+	n, copyErr := io.Copy(w, respBody)
 
 	durationMs := float64(time.Since(start).Microseconds()) / 1000.0
 	p.logger.Info("http_request",
@@ -110,16 +122,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"status", respMeta.StatusCode,
 		"duration_ms", durationMs,
 		"bytes_in", int64(len(body)),
-		"bytes_out", int64(len(respBody)),
+		"bytes_out", n,
 		"client_ip", httputil.ClientIP(r, p.trustProxyHeaders),
 	)
-
-	// Write response headers.
-	for k, vs := range respMeta.Headers {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
+	if copyErr != nil {
+		// Origin/tunnel ended the body early; the visitor already sees a broken
+		// stream. Correct behavior, logged for visibility.
+		p.logger.Warn("response_stream_incomplete", "subdomain", subdomain, "bytes_out", n, "error", copyErr)
 	}
-	w.WriteHeader(respMeta.StatusCode)
-	_, _ = w.Write(respBody)
 }

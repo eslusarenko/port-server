@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -21,14 +22,14 @@ type mockForwarder struct {
 	err        error
 }
 
-func (m *mockForwarder) ForwardRequest(_ context.Context, _ protocol.HttpRequestMeta, _ []byte) (protocol.HttpResponseMeta, []byte, error) {
+func (m *mockForwarder) ForwardRequest(_ context.Context, _ protocol.HttpRequestMeta, _ []byte) (protocol.HttpResponseMeta, io.ReadCloser, error) {
 	if m.err != nil {
 		return protocol.HttpResponseMeta{}, nil, m.err
 	}
 	return protocol.HttpResponseMeta{
 		StatusCode: m.statusCode,
 		Headers:    m.headers,
-	}, m.body, nil
+	}, io.NopCloser(bytes.NewReader(m.body)), nil
 }
 
 type mockLookup struct {

@@ -11,11 +11,16 @@ const (
 	TypeTunnelReady  MessageType = 0x01
 	TypeTunnelError  MessageType = 0x02
 	TypeHttpRequest  MessageType = 0x03
-	TypeHttpResponse MessageType = 0x04
+	TypeHttpResponse MessageType = 0x04 // legacy one-shot response (still accepted)
 	TypeRequestError MessageType = 0x05
-	TypePing         MessageType = 0x10
-	TypePong         MessageType = 0x11
-	TypeShutdown     MessageType = 0x12
+
+	TypeHttpResponseHead  MessageType = 0x06 // status + headers, once per response
+	TypeHttpResponseChunk MessageType = 0x07 // a body slice (payload is raw bytes)
+	TypeHttpResponseEnd   MessageType = 0x08 // end of body; payload empty = clean, else error
+
+	TypePing     MessageType = 0x10
+	TypePong     MessageType = 0x11
+	TypeShutdown MessageType = 0x12
 )
 
 // HeaderSize is the fixed binary header prepended to every WebSocket message.
